@@ -1,0 +1,191 @@
+---
+title: "Home"
+format: html
+execute:
+  echo: false
+---
+
+
+
+```{r,warning=FALSE}
+#| label: setup
+#| message: false
+# Load necessary libraries
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(brms)
+library(gtsummary)
+library(posterior)
+library(tidybayes)
+```
+
+```{r,warning=FALSE}
+#| label: data preprocessing
+# Load the dataset
+train <- read.csv("./data/train.csv")
+test <- read.csv("./data/test.csv")
+
+# Display the structure of the dataset
+#str(train)
+
+# Data Preprocessing
+# Handle missing values
+train$LotFrontage[is.na(train$LotFrontage)] <- median(train$LotFrontage, na.rm = TRUE)
+train$MasVnrArea[is.na(train$MasVnrArea)] <- 0
+train$GarageYrBlt[is.na(train$GarageYrBlt)] <- median(train$GarageYrBlt, na.rm = TRUE)
+
+# Handle missing values for other numerical variables by replacing with the median
+num_vars <- names(train)[sapply(train, is.numeric)]
+for (var in num_vars) {
+  train[[var]][is.na(train[[var]])] <- median(train[[var]], na.rm = TRUE)
+}
+
+# Convert categorical variables to factors
+categorical_vars <- c("MSZoning", "Street", "Alley", "LotShape", "LandContour", 
+                      "Utilities", "LotConfig", "LandSlope", "Neighborhood", 
+                      "Condition1", "Condition2", "BldgType", "HouseStyle", 
+                      "RoofStyle", "RoofMatl", "Exterior1st", "Exterior2nd", 
+                      "MasVnrType", "ExterQual", "ExterCond", "Foundation", 
+                      "BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", 
+                      "BsmtFinType2", "Heating", "HeatingQC", "CentralAir", 
+                      "Electrical", "KitchenQual", "Functional", "FireplaceQu", 
+                      "GarageType", "GarageFinish", "GarageQual", "GarageCond", 
+                      "PavedDrive", "PoolQC", "Fence", "MiscFeature", "SaleType", 
+                      "SaleCondition")
+train[categorical_vars] <- lapply(train[categorical_vars], function(x) {
+  x <- as.factor(x)
+  levels(x)[is.na(levels(x))] <- "None"
+  x
+})
+
+set.seed(123)  # for reproducibility
+trainIndex <- createDataPartition(train$SalePrice, p = 0.8, list = FALSE)
+trainData <- train[trainIndex, ]
+validationData <- train[-trainIndex, ]
+
+# Check for any remaining NA values
+na_counts <- colSums(is.na(train))
+#print(na_counts[na_counts > 0])
+
+```
+
+```{r,warning=FALSE}
+#| cache: true
+#| label: brm model
+# Bayesian Regression Model using brms
+# Specify the formula
+formula <- SalePrice ~ LotFrontage + LotArea + OverallQual + OverallCond + YearBuilt + 
+  YearRemodAdd + MasVnrArea + BsmtFinSF1 + BsmtFinSF2 + BsmtUnfSF + 
+  TotalBsmtSF + X1stFlrSF + X2ndFlrSF + GrLivArea + BsmtFullBath + 
+  BsmtHalfBath + FullBath + HalfBath + BedroomAbvGr + KitchenAbvGr + 
+  TotRmsAbvGrd + Fireplaces + GarageYrBlt + GarageCars + GarageArea + 
+  WoodDeckSF + OpenPorchSF + EnclosedPorch + X3SsnPorch + ScreenPorch + 
+  PoolArea + MiscVal
+
+# Fit the Bayesian model
+model_brm <- brm(formula = formula, data = train, family = gaussian(), 
+                 prior = c(set_prior("normal(0, 10)", class = "b")), 
+                 chains = 4, cores = 4, iter = 2000,seed=9)
+
+
+
+```
+
+```{r}
+#| cache: true
+#| label: other brm model
+formula1<-SalePrice ~ LotArea + OverallQual + GrLivArea + YearBuilt
+
+other_model_brm <- brm(formula = formula1, data = train, family = gaussian(), prior = c(set_prior("normal(0, 10)", class = "b")), chains = 4, cores = 4, iter = 2000, seed=9)
+```
+
+```{r}
+#fixef(model_brm)
+#fixef(other_model_brm)
+#| label: predictions and error calculation
+# Generate predictions
+pred_draws <- add_epred_draws(model_brm, newdata = validationData, ndraws = 100)
+
+# Calculate mean predictions for each observation
+pred_summary <- pred_draws %>%
+  group_by(.row) %>%
+  summarise(
+    epred_mean = mean(.epred),
+    epred_lower = quantile(.epred, 0.025),
+    epred_upper = quantile(.epred, 0.975)
+  )
+
+# Combine with validation data
+validationData <- validationData %>%
+  bind_cols(pred_summary) %>%
+  mutate(
+    residuals = SalePrice - epred_mean,
+    MAE = mean(abs(residuals)),
+    RMSE = sqrt(mean(residuals^2))
+  )
+
+# Print performance metrics
+cat("Bayesian Regression Model\n")
+cat("Mean Absolute Error: ", mean(validationData$MAE), "\n")
+cat("Root Mean Squared Error: ", mean(validationData$RMSE), "\n")
+```
+
+<div>
+  <label for="LotArea">Lot Area:</label>
+  <input type="number" id="LotArea" name="LotArea" step="0.01"><br><br>
+<label for="OverallQual">Overall Quality:</label>
+<input type="number" id="OverallQual" name="OverallQual" step="0.01"><br><br>
+
+<label for="GrLivArea">Ground Living Area:</label>
+<input type="number" id="GrLivArea" name="GrLivArea" step="0.01"><br><br>
+
+<label for="YearBuilt">Year Built:</label>
+<input type="number" id="YearBuilt" name="YearBuilt"><br><br>
+
+<button type="button" onclick="estimatePrice()">Estimate Price</button>
+
+</div>
+<p id="output"></p>
+<script>
+  // Placeholder coefficients, replace with actual coefficients from other_model_brm
+  const coefficients = {
+    Intercept: -57263.17,
+    LotArea: 21.04,
+    OverallQual: 2.07,
+    GrLivArea: 95.54,
+    YearBuilt: 43.22
+  };
+
+  function estimatePrice() {
+    const LotArea = parseFloat(document.getElementById('LotArea').value);
+    const OverallQual = parseFloat(document.getElementById('OverallQual').value);
+    const GrLivArea = parseFloat(document.getElementById('GrLivArea').value);
+    const YearBuilt = parseInt(document.getElementById('YearBuilt').value);
+
+    const predictedPrice = coefficients.Intercept +
+      coefficients.LotArea * LotArea +
+      coefficients.OverallQual * OverallQual +
+      coefficients.GrLivArea * GrLivArea +
+      coefficients.YearBuilt * YearBuilt;
+
+    document.getElementById('output').innerText = `Estimated Price: $${predictedPrice.toFixed(2)}`;
+  }
+</script>
+
+
+This graph shows the distribution of house sale prices:
+
+```{r}
+validationData %>%
+  pivot_longer(cols = c(SalePrice, epred_mean), names_to = "Type", values_to = "Price") %>%
+  ggplot(aes(x = Price, fill = Type)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous(labels = scales::label_currency()) +
+  labs(title = "Distribution of Sale Prices", x = "Sale Price", y = "Density") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+
+

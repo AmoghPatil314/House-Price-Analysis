@@ -1,0 +1,6 @@
+---
+title: "Sources"
+format: html
+---
+
+My data was from https://www.kaggle.com/datasets/lespin/house-prices-dataset. The data was pretty much untuched, except for being partitioned so as to be used to preform an analysis on one of the BRM models.

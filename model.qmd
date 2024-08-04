@@ -1,0 +1,296 @@
+---
+title: "Model"
+format: html
+---
+
+This page details the "quirks" of the model used for this website.
+
+```{r,warning=FALSE}
+#| label: setup
+#| message: false
+# Load necessary libraries
+library(tidyverse)
+library(caret)
+library(randomForest)
+library(brms)
+library(gtsummary)
+library(posterior)
+library(tidybayes)
+```
+
+```{r,warning=FALSE}
+#| label: data preprocessing
+# Load the dataset
+train <- read.csv("./data/train.csv")
+test <- read.csv("./data/test.csv")
+
+# Display the structure of the dataset
+#str(train)
+
+# Data Preprocessing
+# Handle missing values
+train$LotFrontage[is.na(train$LotFrontage)] <- median(train$LotFrontage, na.rm = TRUE)
+train$MasVnrArea[is.na(train$MasVnrArea)] <- 0
+train$GarageYrBlt[is.na(train$GarageYrBlt)] <- median(train$GarageYrBlt, na.rm = TRUE)
+
+# Handle missing values for other numerical variables by replacing with the median
+num_vars <- names(train)[sapply(train, is.numeric)]
+for (var in num_vars) {
+  train[[var]][is.na(train[[var]])] <- median(train[[var]], na.rm = TRUE)
+}
+
+# Convert categorical variables to factors
+categorical_vars <- c("MSZoning", "Street", "Alley", "LotShape", "LandContour", 
+                      "Utilities", "LotConfig", "LandSlope", "Neighborhood", 
+                      "Condition1", "Condition2", "BldgType", "HouseStyle", 
+                      "RoofStyle", "RoofMatl", "Exterior1st", "Exterior2nd", 
+                      "MasVnrType", "ExterQual", "ExterCond", "Foundation", 
+                      "BsmtQual", "BsmtCond", "BsmtExposure", "BsmtFinType1", 
+                      "BsmtFinType2", "Heating", "HeatingQC", "CentralAir", 
+                      "Electrical", "KitchenQual", "Functional", "FireplaceQu", 
+                      "GarageType", "GarageFinish", "GarageQual", "GarageCond", 
+                      "PavedDrive", "PoolQC", "Fence", "MiscFeature", "SaleType", 
+                      "SaleCondition")
+train[categorical_vars] <- lapply(train[categorical_vars], function(x) {
+  x <- as.factor(x)
+  levels(x)[is.na(levels(x))] <- "None"
+  x
+})
+
+set.seed(123)  # for reproducibility
+trainIndex <- createDataPartition(train$SalePrice, p = 0.8, list = FALSE)
+trainData <- train[trainIndex, ]
+validationData <- train[-trainIndex, ]
+
+# Check for any remaining NA values
+na_counts <- colSums(is.na(train))
+#print(na_counts[na_counts > 0])
+
+```
+
+```{r,warning=FALSE}
+#| cache: true
+#| label: brm model
+# Bayesian Regression Model using brms
+# Specify the formula
+formula <- SalePrice ~ LotFrontage + LotArea + OverallQual + OverallCond + YearBuilt + 
+  YearRemodAdd + MasVnrArea + BsmtFinSF1 + BsmtFinSF2 + BsmtUnfSF + 
+  TotalBsmtSF + X1stFlrSF + X2ndFlrSF + GrLivArea + BsmtFullBath + 
+  BsmtHalfBath + FullBath + HalfBath + BedroomAbvGr + KitchenAbvGr + 
+  TotRmsAbvGrd + Fireplaces + GarageYrBlt + GarageCars + GarageArea + 
+  WoodDeckSF + OpenPorchSF + EnclosedPorch + X3SsnPorch + ScreenPorch + 
+  PoolArea + MiscVal
+
+# Fit the Bayesian model
+model_brm <- brm(formula = formula, data = train, family = gaussian(), 
+                 prior = c(set_prior("normal(0, 10)", class = "b")), 
+                 chains = 4, cores = 4, iter = 2000,seed=9)
+
+
+
+```
+
+```{r}
+#| cache: true
+#| label: other brm model
+formula1<-SalePrice ~ LotArea + OverallQual + GrLivArea + YearBuilt
+
+other_model_brm <- brm(formula = formula1, data = train, family = gaussian(), prior = c(set_prior("normal(0, 10)", class = "b")), chains = 4, cores = 4, iter = 2000, seed=9)
+```
+
+
+
+
+```{r}
+#fixef(model_brm)
+#fixef(other_model_brm)
+#| label: predictions and error calculation
+# Generate predictions
+pred_draws <- add_epred_draws(model_brm, newdata = validationData, ndraws = 100)
+
+# Calculate mean predictions for each observation
+pred_summary <- pred_draws %>%
+  group_by(.row) %>%
+  summarise(
+    epred_mean = mean(.epred),
+    epred_lower = quantile(.epred, 0.025),
+    epred_upper = quantile(.epred, 0.975)
+  )
+
+# Combine with validation data
+validationData <- validationData %>%
+  bind_cols(pred_summary) %>%
+  mutate(
+    residuals = SalePrice - epred_mean,
+    MAE = mean(abs(residuals)),
+    RMSE = sqrt(mean(residuals^2))
+  )
+
+# Print performance metrics
+cat("Bayesian Regression Model\n")
+cat("Mean Absolute Error: ", mean(validationData$MAE), "\n")
+cat("Root Mean Squared Error: ", mean(validationData$RMSE), "\n")
+```
+
+
+## Predictions
+
+This sections talks about the predictions made by the model.
+
+The predictions were created with the add_epred_draws() function from the tidybayes package. While still having some inaccuracy, this function is generally more accurate than its counterparts.
+
+Here are some graphs detailing the predictions:
+
+
+```{r}
+#| label: prediction vs actual plot
+ggplot(validationData, aes(x = SalePrice, y = epred_mean)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  scale_x_continuous(labels=scales::label_currency())+
+  scale_y_continuous(labels=scales::label_currency())+
+  labs(title = "Prediction vs. Actual", x = "Actual Sale Price", y = "Predicted Sale Price") +
+  theme_minimal()
+```
+
+```{r}
+#| label: density plot of predictions
+ggplot(validationData, aes(x = epred_mean)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  scale_x_continuous(labels = scales::comma_format()) +
+  labs(title = "Density Plot of Predictions", x = "Predicted Sale Price", y = "") +
+  theme_minimal()+
+  theme(axis.text.y = element_blank())
+```
+
+```{r}
+# Plot posterior distributions of coefficients
+posterior_samples <- as_draws_df(model_brm)
+posterior_samples %>%
+  pivot_longer(cols = starts_with("b_"), names_to = "Coefficient", values_to = "Value") %>%
+  ggplot(aes(x = Value, fill = Coefficient)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous(limits = c(-10,10))+
+  labs(title = "Posterior Distributions of Model Coefficients", x = "Coefficient Value", y = "Density") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+```
+
+```{r}
+ggplot(validationData, aes(x = SalePrice, y = epred_mean)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_errorbar(aes(ymin = epred_lower, ymax = epred_upper), alpha = 0.3) +
+  geom_abline(slope = 1, intercept = 0, color = "red") +
+  scale_x_continuous(labels = scales::label_currency()) +
+  scale_y_discrete(labels = scales::label_currency()) +
+  labs(title = "Prediction Intervals vs. Actual Sale Prices", x = "Actual Sale Price", y = "Predicted Sale Price") +
+  theme_minimal()
+
+```
+
+
+## Models
+
+#Model #1
+This section talks about both models that are used in this website.
+
+The first (and more accurate) model is a BRM model (Bayesian Regression Model). This is the model that is used for all of the graphs. The model uses a formula that includes all the variables in the data to predict how much each variable affects the total price of the house. The formula is
+$$
+\begin{align*}
+\text{SalePrice} = \mathcal{N}(\mu_i, \sigma^2) \\
+\mu_i = \beta_0 + \beta_1 \cdot \text{LotFrontage}_i + \beta_2 \cdot \text{LotArea}_i + \beta_3 \cdot \text{OverallQual}_i + \beta_4 \cdot \text{OverallCond}_i + \beta_5 \cdot \text{YearBuilt}_i + \beta_6 \cdot \text{YearRemodAdd}_i \\
++ \beta_7 \cdot \text{MasVnrArea}_i + \beta_8 \cdot \text{BsmtFinSF1}_i + \beta_9 \cdot \text{BsmtFinSF2}_i + \beta_{10} \cdot \text{BsmtUnfSF}_i + \beta_{11} \cdot \text{TotalBsmtSF}_i \\
++ \beta_{12} \cdot \text{X1stFlrSF}_i + \beta_{13} \cdot \text{X2ndFlrSF}_i + \beta_{14} \cdot \text{GrLivArea}_i + \beta_{15} \cdot \text{BsmtFullBath}_i + \beta_{16} \cdot \text{BsmtHalfBath}_i \\
++ \beta_{17} \cdot \text{FullBath}_i + \beta_{18} \cdot \text{HalfBath}_i + \beta_{19} \cdot \text{BedroomAbvGr}_i + \beta_{20} \cdot \text{KitchenAbvGr}_i + \beta_{21} \cdot \text{TotRmsAbvGrd}_i \\
++ \beta_{22} \cdot \text{Fireplaces}_i + \beta_{23} \cdot \text{GarageYrBlt}_i + \beta_{24} \cdot \text{GarageCars}_i + \beta_{25} \cdot \text{GarageArea}_i \\
++ \beta_{26} \cdot \text{WoodDeckSF}_i + \beta_{27} \cdot \text{OpenPorchSF}_i + \beta_{28} \cdot \text{EnclosedPorch}_i + \beta_{29} \cdot \text{X3SsnPorch}_i + \beta_{30} \cdot \text{ScreenPorch}_i \\
++ \beta_{31} \cdot \text{PoolArea}_i + \beta_{32} \cdot \text{MiscVal}_i
+\end{align*}
+$$
+Where:
+  $\text{SalePrice}_i$ is the price of the house
+  $u_i$ is the linear predictor for the $i$-th house.
+  $\beta_{0},\beta_{1},\beta_{2}...\beta_{32}$ are the coefficients.
+  $\sigma^2$ is the variance of the Gaussian distribution.
+  
+I've created a few graphs for this model, to show the "tech" stuff behind it.
+
+```{r}
+#| label: residuals plot
+threshold <- quantile(validationData$residuals, c(0.01, 0.99))
+ggplot(validationData %>%
+        mutate(residuals_capped = ifelse(residuals < threshold[1], threshold[1],
+                                   ifelse(residuals > threshold[2], threshold[2], residuals))),
+       aes(x = epred_mean, y = residuals)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, color = "red") +
+  scale_x_continuous(labels = scales::comma_format()) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  labs(title = "Residuals Plot", x = "Predicted Sale Price", y = "Residuals") +
+  theme_minimal()
+```
+
+```{r}
+#| label: uncertainty intervals plot
+ggplot(validationData, aes(x = 1:nrow(validationData))) +
+  geom_point(aes(y = epred_mean), alpha = 0.5) +
+  geom_errorbar(aes(ymin = epred_lower, ymax = epred_upper), alpha = 0.3) +
+  scale_y_continuous(labels = scales::comma_format()) +
+  labs(title = "Uncertainty Intervals", x = "Observation", y = "Predicted Sale Price") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(validationData, aes(x = factor(0), y = residuals)) +
+  geom_violin(fill = "blue", alpha = 0.5) +
+  geom_jitter(width = 0.2, alpha = 0.3) +
+  labs(title = "Violin Plot of Residuals", x = "", y = "Residuals") +
+  theme_minimal()
+
+```
+
+```{r}
+validationData %>%
+  arrange(epred_mean) %>%
+  mutate(index = row_number()) %>%
+  ggplot(aes(x = index, y = epred_mean)) +
+  geom_point(alpha = 0.5) +
+  geom_errorbar(aes(ymin = epred_lower, ymax = epred_upper), alpha = 0.3) +
+  labs(title = "Caterpillar Plot of Predictions", x = "Observation Index", y = "Predicted Sale Price") +
+  theme_minimal()
+
+```
+
+```{r}
+selected_vars <- c("LotFrontage", "OverallQual", "GrLivArea", "YearBuilt", "SalePrice")
+pairs(trainData[selected_vars], main = "Pair Plot of Selected Predictors and Sale Price")
+
+```
+
+```{r}
+ggplot(validationData, aes(x = LotArea, y = GrLivArea, group = residuals,fill=residuals)) +
+  geom_hex() +
+  scale_fill_gradient2(low = "blue", high = "red", midpoint = 0, mid = "white") +
+  labs(title = "Heatmap of Residuals", x = "Lot Area", y = "Ground Living Area",fill="Residual") +
+  theme_minimal()
+
+```
+
+Residuals are the difference between predicted and actual values.
+  
+#Model #2
+
+The other (also BRM) model that was used was for only the House price estimator. This too was a BRM model, but it had fewer variables, thus making it less accurate. This was due to needing to simplify the model so the variables would be easier to type in (4 inputs is much better than 32). However, the math is still the same pattern. Observe:
+$$
+\begin{align*}
+\text{SalePrice}_i = \mathcal{N}(\mu_i, \sigma^2) \\
+\mu_i = \beta_0 + \beta_1 \cdot \text{LotArea}_i + \beta_2 \cdot \text{OverallQual}_i + \beta_3 \cdot \text{GrLivArea}_i + \beta_4 \cdot \text{YearBuilt}_i
+\end{align*}
+$$
+Where:
+  $\text{SalePrice}_i$ is the price of the house
+  $u_i$ is the linear predictor for the $i$-th house.
+  $\beta_{0}...\beta_{4}$ are the coefficients.
+  $\sigma^2$ is the variance of the Gaussian distribution.
+
