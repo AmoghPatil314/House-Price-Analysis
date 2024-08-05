@@ -5,7 +5,13 @@ execute:
   echo: false
 ---
 
+It's a fact house prices are a hot topic in today's economy. And, while they do seem to be quite random, what if I told you there was a way to predict and analyse them?
 
+Using the data from a Kaggle dataset (and competition), we seek to understand the relationship between the features and the price of a house, along with trying to replicate it. Data was partitioned as a means of training the model.
+
+We modeled 32 linear variables as a logistic function of house price. People with greater of certain variables were more likely to have a higher priced house, while having higher other variables make it lower.
+
+The area of the garage (if there is one) is the biggest factor in determining the price of a house, having a coefficient of 45.
 
 ```{r,warning=FALSE}
 #| label: setup
@@ -18,6 +24,7 @@ library(brms)
 library(gtsummary)
 library(posterior)
 library(tidybayes)
+library(plotly)
 ```
 
 ```{r,warning=FALSE}
@@ -71,6 +78,7 @@ na_counts <- colSums(is.na(train))
 ```
 
 ```{r,warning=FALSE}
+#| message: false
 #| cache: true
 #| label: brm model
 # Bayesian Regression Model using brms
@@ -93,6 +101,7 @@ model_brm <- brm(formula = formula, data = train, family = gaussian(),
 ```
 
 ```{r}
+#| message: false
 #| cache: true
 #| label: other brm model
 formula1<-SalePrice ~ LotArea + OverallQual + GrLivArea + YearBuilt
@@ -101,6 +110,7 @@ other_model_brm <- brm(formula = formula1, data = train, family = gaussian(), pr
 ```
 
 ```{r}
+#| message: false
 #fixef(model_brm)
 #fixef(other_model_brm)
 #| label: predictions and error calculation
@@ -126,9 +136,9 @@ validationData <- validationData %>%
   )
 
 # Print performance metrics
-cat("Bayesian Regression Model\n")
-cat("Mean Absolute Error: ", mean(validationData$MAE), "\n")
-cat("Root Mean Squared Error: ", mean(validationData$RMSE), "\n")
+#cat("Bayesian Regression Model\n")
+#cat("Mean Absolute Error: ", mean(validationData$MAE), "\n")
+#cat("Root Mean Squared Error: ", mean(validationData$RMSE), "\n")
 ```
 
 <div>
@@ -177,15 +187,16 @@ cat("Root Mean Squared Error: ", mean(validationData$RMSE), "\n")
 This graph shows the distribution of house sale prices:
 
 ```{r}
-validationData %>%
-  pivot_longer(cols = c(SalePrice, epred_mean), names_to = "Type", values_to = "Price") %>%
-  ggplot(aes(x = Price, fill = Type)) +
-  geom_density(alpha = 0.5) +
+#| label: density plot of predictions
+x<-ggplot(validationData, aes(x = epred_mean)) +
+  geom_density(fill = "blue", alpha = 0.5) +
   scale_x_continuous(labels = scales::label_currency()) +
-  labs(title = "Distribution of Sale Prices", x = "Sale Price", y = "Density") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
+  labs(title = "Density Plot of Predictions", x = "Predicted Sale Price", y = "") +
+  theme_minimal()+
+  theme(axis.text.y = element_blank())
 
+ggplotly(x)
 ```
+
 
 

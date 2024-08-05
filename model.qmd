@@ -1,6 +1,8 @@
 ---
 title: "Model"
 format: html
+execute: 
+  echo: false
 ---
 
 This page details the "quirks" of the model used for this website.
@@ -16,6 +18,7 @@ library(brms)
 library(gtsummary)
 library(posterior)
 library(tidybayes)
+library(plotly)
 ```
 
 ```{r,warning=FALSE}
@@ -69,6 +72,7 @@ na_counts <- colSums(is.na(train))
 ```
 
 ```{r,warning=FALSE}
+#| message: false
 #| cache: true
 #| label: brm model
 # Bayesian Regression Model using brms
@@ -91,6 +95,7 @@ model_brm <- brm(formula = formula, data = train, family = gaussian(),
 ```
 
 ```{r}
+#| message: false
 #| cache: true
 #| label: other brm model
 formula1<-SalePrice ~ LotArea + OverallQual + GrLivArea + YearBuilt
@@ -102,6 +107,7 @@ other_model_brm <- brm(formula = formula1, data = train, family = gaussian(), pr
 
 
 ```{r}
+#| message: false
 #fixef(model_brm)
 #fixef(other_model_brm)
 #| label: predictions and error calculation
@@ -127,9 +133,9 @@ validationData <- validationData %>%
   )
 
 # Print performance metrics
-cat("Bayesian Regression Model\n")
-cat("Mean Absolute Error: ", mean(validationData$MAE), "\n")
-cat("Root Mean Squared Error: ", mean(validationData$RMSE), "\n")
+#cat("Bayesian Regression Model\n")
+#cat("Mean Absolute Error: ", mean(validationData$MAE), "\n")
+#cat("Root Mean Squared Error: ", mean(validationData$RMSE), "\n")
 ```
 
 
@@ -154,26 +160,31 @@ ggplot(validationData, aes(x = SalePrice, y = epred_mean)) +
 ```
 
 ```{r}
-#| label: density plot of predictions
-ggplot(validationData, aes(x = epred_mean)) +
-  geom_density(fill = "blue", alpha = 0.5) +
-  scale_x_continuous(labels = scales::comma_format()) +
-  labs(title = "Density Plot of Predictions", x = "Predicted Sale Price", y = "") +
-  theme_minimal()+
+validationData %>%
+  pivot_longer(cols = c(SalePrice, epred_mean), names_to = "Type", values_to = "Price") %>%
+  ggplot(aes(x = Price, fill = Type)) +
+  geom_density(alpha = 0.5) +
+  scale_x_continuous(labels = scales::label_currency()) +
+  labs(title = "Distribution of Sale Prices", x = "Sale Price", y = "") +
+  theme_minimal() +
+  theme(legend.position = "bottom")+
   theme(axis.text.y = element_blank())
+
 ```
+
+epred_mean is the predicted house prices.
 
 ```{r}
 # Plot posterior distributions of coefficients
-posterior_samples <- as_draws_df(model_brm)
-posterior_samples %>%
-  pivot_longer(cols = starts_with("b_"), names_to = "Coefficient", values_to = "Value") %>%
-  ggplot(aes(x = Value, fill = Coefficient)) +
-  geom_density(alpha = 0.5) +
-  scale_x_continuous(limits = c(-10,10))+
-  labs(title = "Posterior Distributions of Model Coefficients", x = "Coefficient Value", y = "Density") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
+#posterior_samples <- as_draws_df(model_brm)
+#posterior_samples %>%
+#  pivot_longer(cols = starts_with("b_"), names_to = "Coefficient", values_to = "Value") %>%
+#  ggplot(aes(x = Value, fill = Coefficient)) +
+#  geom_density(alpha = 0.5) +
+#  scale_x_continuous(limits = c(-10,10))+
+#  labs(title = "Posterior Distributions of Model Coefficients", x = "Coefficient Value", y = "Density") +
+#  theme_minimal() +
+#  theme(legend.position = "bottom")
 
 ```
 
@@ -183,7 +194,7 @@ ggplot(validationData, aes(x = SalePrice, y = epred_mean)) +
   geom_errorbar(aes(ymin = epred_lower, ymax = epred_upper), alpha = 0.3) +
   geom_abline(slope = 1, intercept = 0, color = "red") +
   scale_x_continuous(labels = scales::label_currency()) +
-  scale_y_discrete(labels = scales::label_currency()) +
+  scale_y_continuous(labels = scales::label_currency()) +
   labs(title = "Prediction Intervals vs. Actual Sale Prices", x = "Actual Sale Price", y = "Predicted Sale Price") +
   theme_minimal()
 
@@ -192,7 +203,7 @@ ggplot(validationData, aes(x = SalePrice, y = epred_mean)) +
 
 ## Models
 
-#Model #1
+# Model 1
 This section talks about both models that are used in this website.
 
 The first (and more accurate) model is a BRM model (Bayesian Regression Model). This is the model that is used for all of the graphs. The model uses a formula that includes all the variables in the data to predict how much each variable affects the total price of the house. The formula is
@@ -209,9 +220,13 @@ $$
 \end{align*}
 $$
 Where:
-  $\text{SalePrice}_i$ is the price of the house
-  $u_i$ is the linear predictor for the $i$-th house.
-  $\beta_{0},\beta_{1},\beta_{2}...\beta_{32}$ are the coefficients.
+
+  $\text{SalePrice}_i$ is the price of the house. 
+  
+  $u_i$ is the linear predictor for the $i$-th house. 
+  
+  $\beta_{0},\beta_{1},\beta_{2}...\beta_{32}$ are the coefficients. 
+  
   $\sigma^2$ is the variance of the Gaussian distribution.
   
 I've created a few graphs for this model, to show the "tech" stuff behind it.
@@ -225,8 +240,8 @@ ggplot(validationData %>%
        aes(x = epred_mean, y = residuals)) +
   geom_point(alpha = 0.5) +
   geom_hline(yintercept = 0, color = "red") +
-  scale_x_continuous(labels = scales::comma_format()) +
-  scale_y_continuous(labels = scales::comma_format()) +
+  scale_x_continuous(labels=scales::label_currency())+
+  scale_y_continuous(labels=scales::label_currency())+
   labs(title = "Residuals Plot", x = "Predicted Sale Price", y = "Residuals") +
   theme_minimal()
 ```
@@ -236,7 +251,8 @@ ggplot(validationData %>%
 ggplot(validationData, aes(x = 1:nrow(validationData))) +
   geom_point(aes(y = epred_mean), alpha = 0.5) +
   geom_errorbar(aes(ymin = epred_lower, ymax = epred_upper), alpha = 0.3) +
-  scale_y_continuous(labels = scales::comma_format()) +
+  scale_x_continuous(labels=scales::comma_format())+
+  scale_y_continuous(labels=scales::label_currency())+
   labs(title = "Uncertainty Intervals", x = "Observation", y = "Predicted Sale Price") +
   theme_minimal()
 ```
@@ -245,6 +261,8 @@ ggplot(validationData, aes(x = 1:nrow(validationData))) +
 ggplot(validationData, aes(x = factor(0), y = residuals)) +
   geom_violin(fill = "blue", alpha = 0.5) +
   geom_jitter(width = 0.2, alpha = 0.3) +
+  #scale_x_continuous(labels=scales::comma_format())+
+  scale_y_continuous(labels=scales::label_currency())+
   labs(title = "Violin Plot of Residuals", x = "", y = "Residuals") +
   theme_minimal()
 
@@ -257,6 +275,8 @@ validationData %>%
   ggplot(aes(x = index, y = epred_mean)) +
   geom_point(alpha = 0.5) +
   geom_errorbar(aes(ymin = epred_lower, ymax = epred_upper), alpha = 0.3) +
+  scale_x_continuous(labels=scales::comma_format())+
+  scale_y_continuous(labels=scales::label_currency())+
   labs(title = "Caterpillar Plot of Predictions", x = "Observation Index", y = "Predicted Sale Price") +
   theme_minimal()
 
@@ -272,6 +292,8 @@ pairs(trainData[selected_vars], main = "Pair Plot of Selected Predictors and Sal
 ggplot(validationData, aes(x = LotArea, y = GrLivArea, group = residuals,fill=residuals)) +
   geom_hex() +
   scale_fill_gradient2(low = "blue", high = "red", midpoint = 0, mid = "white") +
+  scale_x_continuous(labels=scales::comma_format())+
+  scale_y_continuous(labels=scales::comma_format())+
   labs(title = "Heatmap of Residuals", x = "Lot Area", y = "Ground Living Area",fill="Residual") +
   theme_minimal()
 
@@ -279,9 +301,9 @@ ggplot(validationData, aes(x = LotArea, y = GrLivArea, group = residuals,fill=re
 
 Residuals are the difference between predicted and actual values.
   
-#Model #2
+# Model 2
 
-The other (also BRM) model that was used was for only the House price estimator. This too was a BRM model, but it had fewer variables, thus making it less accurate. This was due to needing to simplify the model so the variables would be easier to type in (4 inputs is much better than 32). However, the math is still the same pattern. Observe:
+The other (also BRM) model that was used was for only the House price estimator. This too was a BRM model, but it had fewer variables, thus making it less accurate. This was due to needing to simplify the model so the variables would be easier to type in (4 convenient inputs is much better than 32 estranged ones). However, the math is still the same pattern. Observe:
 $$
 \begin{align*}
 \text{SalePrice}_i = \mathcal{N}(\mu_i, \sigma^2) \\
@@ -289,8 +311,12 @@ $$
 \end{align*}
 $$
 Where:
-  $\text{SalePrice}_i$ is the price of the house
-  $u_i$ is the linear predictor for the $i$-th house.
-  $\beta_{0}...\beta_{4}$ are the coefficients.
+
+  $\text{SalePrice}_i$ is the price of the house. 
+  
+  $u_i$ is the linear predictor for the $i$-th house. 
+  
+  $\beta_{0}...\beta_{4}$ are the coefficients. 
+  
   $\sigma^2$ is the variance of the Gaussian distribution.
 
