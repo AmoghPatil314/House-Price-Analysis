@@ -11,7 +11,7 @@ Using the data from a Kaggle dataset (and competition), we seek to understand th
 
 We modeled 32 linear variables as a logistic function of house price. People with greater of certain variables were more likely to have a higher priced house, while having higher other variables make it lower.
 
-The area of the garage (if there is one) is the biggest factor in determining the price of a house, having a coefficient of 45.
+The area of the garage (if there is one) is the biggest factor in determining the price of a house, being 4.5x as important as the average feature.
 
 ```{r,warning=FALSE}
 #| label: setup

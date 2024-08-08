@@ -229,6 +229,17 @@ Where:
   
   $\sigma^2$ is the variance of the Gaussian distribution.
   
+Here's a summary of the model:
+```{r}
+tbl_regression(model_brm)
+```
+
+And these are the values of the coefficients:
+```{r}
+fixef(model_brm)
+```
+
+  
 I've created a few graphs for this model, to show the "tech" stuff behind it.
 
 ```{r}
@@ -319,4 +330,16 @@ Where:
   $\beta_{0}...\beta_{4}$ are the coefficients. 
   
   $\sigma^2$ is the variance of the Gaussian distribution.
+
+Here's a summary of the model:
+```{r}
+tbl_regression(other_model_brm)
+```
+
+And these are the values of the coefficients:
+```{r}
+fixef(other_model_brm)
+```
+
+
 
